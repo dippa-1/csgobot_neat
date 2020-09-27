@@ -29,7 +29,7 @@ NeuralNet copy_neural_net(NeuralNet* net);
 // NEAT functions
 Population new_population(int size);
 void delete_population(Population* population);
-void calculate_reward();
+float calculate_reward(float* output, float* goal, int vector_size);
 Population inherit_population(Population precesters);
 
 
@@ -37,10 +37,10 @@ int main(void) {
 	srand(time(NULL));
 
 	float input[] = {1.0f, 1.0f};
-	/*int topology[] = {2, 1};
-	NeuralNet net = create_neural_net(2, topology);
+	//int topology[] = {2, 1};
+	//NeuralNet net = create_neural_net(2, topology);
 
-	float output[1];
+	/*float output[1];
 	predict(&net, input, output);
 	printf("result: %10f\n", output[0]);
 
@@ -55,9 +55,35 @@ int main(void) {
 	delete_neural_net(&net);*/
 
 	float output[1];
-	Population pop = new_population(2);
-	predict(pop.people[0], input, output);
-	printf("result: %10f\n", output[0]);
+	int popsize = 50;
+	Population pop = new_population(popsize);
+	for (int gen = 0; gen < 20; ++gen) {
+		float maxreward = 0.0f;
+		int best_person = 0;
+		input[0] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
+		input[1] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
+		float goal[1] = {input[0] + input[1]};
+		for (int i = 0; i < popsize; ++i) {
+			predict(pop.people[i], input, output);
+			float reward = calculate_reward(pop.people[i]->layers[1], goal, 1);
+			if (reward > maxreward) {
+				maxreward = reward;
+				best_person = i;
+			}
+		}
+		predict(pop.people[best_person], input, output);
+		//printf("best result: %+7.3f\n", output[0]);
+		printf("best weights: %+5.3f%+7.3f\n", pop.people[best_person]->weights[0][0][0], pop.people[best_person]->weights[0][1][0]);
+		if (gen < 9) {
+			// inherit and mutate
+			for (int i = 0; i < popsize; ++i) {
+				if (i == best_person) continue;
+				delete_neural_net(pop.people[i]);
+				*(pop.people[i]) = copy_neural_net(pop.people[best_person]);
+				mutate_weights(pop.people[i], 0.5);
+			}
+		}
+	}
 
 	delete_population(&pop);
 
@@ -65,17 +91,19 @@ int main(void) {
 }
 
 void random_vector(float* vector, int size) {
-	printf("Random vector: ");
+	//printf("Random vector: ");
 	for (int i = 0; i < size; ++i) {
 		vector[i] = (float)( rand() )/(float)( RAND_MAX ) * 2.0f - 1.0f;
-		printf("%10f", vector[i]);
+		//printf("%10f", vector[i]);
 	}
-	printf("\n");
+	//printf("\n");
 }
 
 
 NeuralNet create_neural_net(int num_layers, int* topology) {
-	NeuralNet net = {num_layers, topology};
+	NeuralNet net = {num_layers};
+	net.topology = (int*) malloc (sizeof(int) * num_layers);
+	memcpy(net.topology, topology, num_layers*sizeof(int));
 	// Every layer except for the last has weights
 	net.weights = (float***) malloc(sizeof(float*) * num_layers-1);
 	net.layers = (float**) malloc(sizeof(float*) * num_layers);
@@ -111,6 +139,7 @@ void delete_neural_net(NeuralNet* net) {
 	}
 	free(net->layers);
 	free(net->weights);
+	free(net->topology);
 }
 
 
@@ -134,8 +163,8 @@ void mutate_weights(NeuralNet* net, float mutation_rate) {
 	for (int i = 0; i < net->num_layers-1; ++i) {
 		for (int j = 0; j < net->topology[i]; ++j) {
 			for (int k = 0; k < net->topology[i+1]; ++k) {
-				if ( (rand() % 100) / 100.0f < mutation_rate) {
-					net->weights[i][j][k] += ( rand() % 20 - 10) / 10.0f;
+				if ( (rand() % 10000) / 10000.0f < mutation_rate) {
+					net->weights[i][j][k] += ( rand() - RAND_MAX/2.0f) / RAND_MAX;
 				}
 			}
 		}
@@ -198,8 +227,8 @@ Population new_population(int size) {
 	pop.people = (NeuralNet**) malloc(sizeof(NeuralNet*) * size);
 	for (int i = 0; i < size; ++i) {
 		pop.people[i] = (NeuralNet*) malloc(sizeof(NeuralNet));
-		NeuralNet net = create_neural_net(2, topology);
-		memcpy(pop.people[i], &net, sizeof(NeuralNet));
+		*(pop.people[i]) = create_neural_net(2, topology);
+		//memcpy(pop.people[i], &net, sizeof(NeuralNet));
 	}
 	return pop;
 }
@@ -210,4 +239,17 @@ void delete_population(Population* population) {
 		free(population->people[i]);
 	}
 	free(population->people);
+}
+
+float calculate_reward(float* output, float* goal, int vector_size) {
+	// calculates reward based on inverse law
+	float reward = 0.0f;
+	for (int i = 0; i < vector_size; ++i) {
+		reward += 1.0f/(goal[i]-output[i]);
+	}
+	return reward;
+}
+
+Population inherit_population(Population precesters) {
+
 }
