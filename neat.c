@@ -2,6 +2,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 typedef struct {
 	int num_layers;
@@ -30,42 +31,32 @@ NeuralNet copy_neural_net(NeuralNet* net);
 Population new_population(int size);
 void delete_population(Population* population);
 float calculate_reward(float* output, float* goal, int vector_size);
-Population inherit_population(Population precesters);
+Population inherit_population(Population* precesters, float* chances_to_inherit);
 
 
 int main(void) {
 	srand(time(NULL));
 
-	float input[] = {1.0f, 1.0f};
-	//int topology[] = {2, 1};
-	//NeuralNet net = create_neural_net(2, topology);
+	float input[5] = {};
 
-	/*float output[1];
-	predict(&net, input, output);
-	printf("result: %10f\n", output[0]);
-
-	mutate_weights(&net, 0.5f);
-	predict(&net, input, output);
-	printf("result: %10f%10f\n", output[0], output[1]);
-	
-	NeuralNet net2 = copy_neural_net(&net);
-	predict(&net2, input, output);
-	printf("result: %10f%10f\n", output[0], output[1]);
-
-	delete_neural_net(&net);*/
-
-	float output[1];
+	float output[2];
 	int popsize = 50;
+	int gensize = 100;
 	Population pop = new_population(popsize);
-	for (int gen = 0; gen < 20; ++gen) {
+	for (int gen = 0; gen < gensize; ++gen) {
 		float maxreward = 0.0f;
 		int best_person = 0;
-		input[0] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
-		input[1] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
-		float goal[1] = {input[0] + input[1]};
+		for (int i = 0; i < 5; ++i) {
+			input[i] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
+		}
+		float goal[2] = {input[0] + 2*input[1] + 3*input[2] + 4*input[3] + 5*input[4], input[3] - input[2]};
+		float gen_fitness = 0.0f;
+		float rewards[pop.size];
 		for (int i = 0; i < popsize; ++i) {
 			predict(pop.people[i], input, output);
-			float reward = calculate_reward(pop.people[i]->layers[1], goal, 1);
+			float reward = calculate_reward(pop.people[i]->layers[1], goal, 2);
+			gen_fitness += reward;
+			rewards[i] = reward;
 			if (reward > maxreward) {
 				maxreward = reward;
 				best_person = i;
@@ -73,15 +64,35 @@ int main(void) {
 		}
 		predict(pop.people[best_person], input, output);
 		//printf("best result: %+7.3f\n", output[0]);
-		printf("best weights: %+5.3f%+7.3f\n", pop.people[best_person]->weights[0][0][0], pop.people[best_person]->weights[0][1][0]);
-		if (gen < 9) {
+		//printf("best weights: %+5.3f%+7.3f\n", pop.people[best_person]->weights[0][0][0], pop.people[best_person]->weights[0][1][0]);
+		printf("best fitness = %.4f from %d\n", maxreward, best_person);
+		float chances[pop.size];
+		for (int i = 0; i < pop.size; ++i) {
+			chances[i] = rewards[i] / gen_fitness;
+		}
+		if (gen < gensize-1) {
+			pop = inherit_population(&pop, chances);
 			// inherit and mutate
-			for (int i = 0; i < popsize; ++i) {
+			/*for (int i = 0; i < popsize; ++i) {
 				if (i == best_person) continue;
 				delete_neural_net(pop.people[i]);
 				*(pop.people[i]) = copy_neural_net(pop.people[best_person]);
 				mutate_weights(pop.people[i], 0.5);
-			}
+			}*/
+		} else {
+			printf("Testing input 5 4 3 2 1\n");
+			goal[0] = 0.0f;
+			goal[1] = 0.0f;
+			input[0] = 5;
+			input[1] = 4;
+			input[2] = 3;
+			input[3] = 2;
+			input[4] = 1;
+			goal[0] = 5+8+12+8+5;
+			goal[1] = input[3] - input[2];
+			printf("Goal: %f %f\n", goal[0], goal[1]);
+			predict(pop.people[best_person], input, output);
+			printf("Output: %f %f\n", output[0], output[1]);
 		}
 	}
 
@@ -122,7 +133,6 @@ NeuralNet create_neural_net(int num_layers, int* topology) {
 			random_vector(weights_for_one_neuron, topology[i+1]);
 			net.weights[i][j] = weights_for_one_neuron;
 		}
-		printf("\n");
 	}
 
 	return net;
@@ -164,7 +174,7 @@ void mutate_weights(NeuralNet* net, float mutation_rate) {
 		for (int j = 0; j < net->topology[i]; ++j) {
 			for (int k = 0; k < net->topology[i+1]; ++k) {
 				if ( (rand() % 10000) / 10000.0f < mutation_rate) {
-					net->weights[i][j][k] += ( rand() - RAND_MAX/2.0f) / RAND_MAX;
+					net->weights[i][j][k] += ( rand() - RAND_MAX/2.0f) / RAND_MAX / 5.0f;
 				}
 			}
 		}
@@ -223,12 +233,11 @@ NeuralNet copy_neural_net(NeuralNet* net) {
 
 Population new_population(int size) {
 	Population pop = {.size = size};
-	int topology[] = {2, 1};
+	int topology[] = {5, 2};
 	pop.people = (NeuralNet**) malloc(sizeof(NeuralNet*) * size);
 	for (int i = 0; i < size; ++i) {
 		pop.people[i] = (NeuralNet*) malloc(sizeof(NeuralNet));
 		*(pop.people[i]) = create_neural_net(2, topology);
-		//memcpy(pop.people[i], &net, sizeof(NeuralNet));
 	}
 	return pop;
 }
@@ -242,14 +251,29 @@ void delete_population(Population* population) {
 }
 
 float calculate_reward(float* output, float* goal, int vector_size) {
-	// calculates reward based on inverse law
+	// calculates reward like a sigmoid function
 	float reward = 0.0f;
 	for (int i = 0; i < vector_size; ++i) {
-		reward += 1.0f/(goal[i]-output[i]);
+		reward += 10.0f/(1.0f + exp(fabs(goal[0] - output[0]) - 2.0f));
 	}
 	return reward;
 }
 
-Population inherit_population(Population precesters) {
-
+Population inherit_population(Population* precesters, float* chances_to_inherit) {
+	Population new_pop = new_population(precesters->size);
+	float chances_lut[precesters->size];
+	chances_lut[0] = chances_to_inherit[0];
+	for (int i = 1; i < precesters->size; ++i) {
+		chances_lut[i] = chances_lut[i-1] + chances_to_inherit[i];
+	}
+	for (int i = 0; i < precesters->size; ++i) {
+		float random = (float) rand() / RAND_MAX;
+		int index = 0;
+		while (random > chances_lut[index]) ++index;
+		delete_neural_net(new_pop.people[i]);
+		*(new_pop.people[i]) = copy_neural_net(precesters->people[index]);
+		mutate_weights(new_pop.people[i], 0.1);
+	}
+	delete_population(precesters);
+	return new_pop;
 }
