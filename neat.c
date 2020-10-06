@@ -39,6 +39,9 @@ int main(void) {
 
 	float input[5] = {};
 
+	FILE* logfile = fopen("log.txt", "w");
+	fprintf(logfile, "#Generation\tBest fitness\n");
+
 	float output[2];
 	int popsize = 50;
 	int gensize = 100;
@@ -47,7 +50,7 @@ int main(void) {
 		float maxreward = 0.0f;
 		int best_person = 0;
 		for (int i = 0; i < 5; ++i) {
-			input[i] = (float)rand() / RAND_MAX * 5.0f - 2.5f;
+			input[i] = (float)rand() / RAND_MAX * 1000.0f - 500.0f;
 		}
 		float goal[2] = {input[0] + 2*input[1] + 3*input[2] + 4*input[3] + 5*input[4], input[3] - input[2]};
 		float gen_fitness = 0.0f;
@@ -66,6 +69,7 @@ int main(void) {
 		//printf("best result: %+7.3f\n", output[0]);
 		//printf("best weights: %+5.3f%+7.3f\n", pop.people[best_person]->weights[0][0][0], pop.people[best_person]->weights[0][1][0]);
 		printf("best fitness = %.4f from %d\n", maxreward, best_person);
+		fprintf(logfile, "%d\t%f\n", gen, maxreward);
 		float chances[pop.size];
 		for (int i = 0; i < pop.size; ++i) {
 			chances[i] = rewards[i] / gen_fitness;
@@ -88,7 +92,7 @@ int main(void) {
 			input[2] = 3;
 			input[3] = 2;
 			input[4] = 1;
-			goal[0] = 5+8+12+8+5;
+			goal[0] = input[0] + 2*input[1] + 3*input[2] + 4*input[3] + 5*input[4];
 			goal[1] = input[3] - input[2];
 			printf("Goal: %f %f\n", goal[0], goal[1]);
 			predict(pop.people[best_person], input, output);
@@ -96,18 +100,16 @@ int main(void) {
 		}
 	}
 
+	fclose(logfile);
 	delete_population(&pop);
 
 	return 0;
 }
 
 void random_vector(float* vector, int size) {
-	//printf("Random vector: ");
 	for (int i = 0; i < size; ++i) {
 		vector[i] = (float)( rand() )/(float)( RAND_MAX ) * 2.0f - 1.0f;
-		//printf("%10f", vector[i]);
 	}
-	//printf("\n");
 }
 
 
@@ -174,7 +176,7 @@ void mutate_weights(NeuralNet* net, float mutation_rate) {
 		for (int j = 0; j < net->topology[i]; ++j) {
 			for (int k = 0; k < net->topology[i+1]; ++k) {
 				if ( (rand() % 10000) / 10000.0f < mutation_rate) {
-					net->weights[i][j][k] += ( rand() - RAND_MAX/2.0f) / RAND_MAX / 5.0f;
+					net->weights[i][j][k] += 2.0f * ( rand() - RAND_MAX/2.0f) / RAND_MAX;
 				}
 			}
 		}
@@ -254,7 +256,9 @@ float calculate_reward(float* output, float* goal, int vector_size) {
 	// calculates reward like a sigmoid function
 	float reward = 0.0f;
 	for (int i = 0; i < vector_size; ++i) {
-		reward += 10.0f/(1.0f + exp(fabs(goal[0] - output[0]) - 2.0f));
+		float r = 1.0f/fabs(goal[i] - output[i]);
+		if (r > 1.0f) r = 1.0f;
+		reward += r;
 	}
 	return reward;
 }
