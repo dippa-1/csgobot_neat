@@ -6,6 +6,9 @@
 #include <vector>
 #include <map>
 
+#define WIDTH 800
+#define HEIGHT 600
+
 class NeuralNet {
     private:
     std::vector<int> topology;
@@ -58,54 +61,166 @@ class NeuralNet {
 	}
 };
 
-class Population {
+class Target {
 	private:
-	float average_fitness;
-	float best_fitness;
+	public:
+	std::vector<float> pos;
+	float radius;
+
+	Target() {
+		this->pos = { rand() % (WIDTH/2) + (WIDTH/2.0f), rand() % (HEIGHT/2) + (HEIGHT/2.0f)};
+		this->radius = 20.0f;
+	}
+};
+
+class Player {
+	private:
 
 	public:
-	std::vector<float> fitness;
-	std::vector<NeuralNet> nets;
+	NeuralNet brain;
+	float radius;
+	std::vector<float> pos;
+	std::vector<float> vel;
+	float fitness;
+
+	Player(std::vector<int> brain_topology): brain(brain_topology) {
+		this->fitness = 0.0f;
+		this->radius = 20.0f;
+		this->pos = {50.0f, 50.0f};
+		this->vel = {0.0f, 0.0f};
+	}
+
+	Player(const Player& other): brain(other.brain) {
+		this->fitness = 0.0f;
+		this->radius = 20.0f;
+		this->pos = {50.0f, 50.0f};
+		this->vel = {0.0f, 0.0f};
+	}
+
+	void update(void) {
+		this->pos[0] += this->vel[0];
+		this->pos[1] += this->vel[1];
+		if (this->pos[1] < -500.0f) this->pos[1] = -500.0f;
+		else if (this->pos[1] > 500.0f + HEIGHT) this->pos[1] = 500.0f + HEIGHT;
+		this->vel[0] *= 0.75f;
+		this->vel[1] *= 0.75f;
+	}
+
+	void mutate(float rate) {
+		this->brain.mutate_weights(rate);
+	}
+
+	void think(Target& target) {
+		auto prediction = this->brain.predict({
+			(target.pos[0]-this->pos[0])/WIDTH, 
+			(target.pos[1]-this->pos[1])/HEIGHT, 
+			(this->vel[0]-target.pos[0]+this->pos[0])/WIDTH, 
+			(this->vel[1]-target.pos[1]+this->pos[1])/HEIGHT
+			});
+		this->vel[0] += prediction[0]*WIDTH/300;
+    	this->vel[1] += prediction[1]*HEIGHT/300;
+	}
+};
+
+class Population {
+	private:
+
+	public:
+	int generation;
+	float average_fitness;
+	float best_fitness;
+	std::vector<Player> players;
 	Population(int size, std::vector<int> topology) {
 		for (int i = 0; i < size; ++i) {
-			nets.push_back(NeuralNet(topology));
+			players.push_back(Player(topology));
 		}
-		this->fitness = std::vector<float>(size);
+		generation = 1;
 	}
 
 	void next_generation(float mutation_rate) {
 		Population old_pop(*this);
 		float fitness_sum = 0.0f;
-		for (float f : this->fitness) {
-			fitness_sum += f;
+		for (auto player : this->players) {
+			fitness_sum += player.fitness;
 		}
-		for (int i = 0; i < this->fitness.size(); ++i) {
-			this->fitness[i] /= fitness_sum;
+		this->average_fitness = fitness_sum / this->players.size();
+		this->best_fitness = 0.0f;
+		for (int i = 0; i < this->players.size(); ++i) {
+			this->players[i].fitness /= fitness_sum;
+			if (this->players[i].fitness > this->best_fitness) this->best_fitness = this->players[i].fitness;
 		}
-		std::vector<float> chances_lut(this->nets.size());
-		chances_lut[0] = this->fitness[0];
-		for (int i = 1; i < this->fitness.size(); ++i) {
-			chances_lut[i] = chances_lut[i-1] + this->fitness[i];
+		std::vector<float> chances_lut(this->players.size());
+		chances_lut[0] = this->players[0].fitness;
+		for (int i = 1; i < this->players.size(); ++i) {
+			chances_lut[i] = chances_lut[i-1] + this->players[i].fitness;
 		}
-		for (int i = 0; i < this->fitness.size(); ++i) {
+		for (int i = 0; i < this->players.size(); ++i) {
 			float random = (float) rand() / RAND_MAX;
 			int index = 0;
 			while (random > chances_lut[index]) ++index;
-			this->nets[i] = NeuralNet(old_pop.nets[index]);
-			this->nets[i].mutate_weights(mutation_rate);
+			this->players[i] = Player(old_pop.players[index]);
+			this->players[i].mutate(mutation_rate);
 		}
+		++this->generation;
 	}
 };
+
 
 
 // NEAT functions
 float calculate_reward(std::vector<float> output, std::vector<float> goal);
 
+void sketch_static(void) {
+	FILE* logfile = fopen("log.txt", "w");
+	fprintf(logfile, "#Generation\tBest\tAverage\n");
+
+	int frameCount = 1;
+
+	Population pop(20, {4,4,2});
+	Target target;
+
+	while (pop.generation != 100) {
+
+		for (Player& player : pop.players) {
+			player.think(target);
+			float dist = sqrtf((player.pos[0] - target.pos[0])*(player.pos[0] - target.pos[0])
+				+ (player.pos[1] - target.pos[1])*(player.pos[1] - target.pos[1])
+				);
+			float fitness = target.radius / dist / 2.0;
+			if (fitness > 1.0f) fitness = 1.0f;
+			if (dist < target.radius) fitness = 1.0f;
+			player.fitness += fitness;
+			player.update();
+		}
+
+		int tmp = (int)(200.0 / (1 + exp(-1 + 0.03*pop.generation)));
+		if (tmp < 5) tmp = 5;
+		if (frameCount % tmp == 0 && frameCount % 150 != 0) target = Target();
+
+		if (frameCount % 150 == 0) {
+			pop.next_generation(0.1);
+			fprintf(logfile, "%d\t%f\t%f\n", pop.generation, pop.best_fitness, pop.average_fitness);
+			target = Target();
+			float new_startpos[2] = {(float) (rand() % WIDTH), (float) (rand() % HEIGHT)};
+			for (int i = 0; i < pop.players.size(); ++i) {
+				pop.players[i].pos = {new_startpos[0], new_startpos[1]};
+			}
+		}
+
+		++frameCount;
+
+	}
+
+	fclose(logfile);
+}
+
 
 int main(void) {
 	srand(time(NULL));
 
-	std::vector<float> input(3);
+	sketch_static();
+
+	/*std::vector<float> input(3);
 	std::vector<float> input2(3);
 	std::vector<float> input3(3);
 
@@ -154,7 +269,7 @@ int main(void) {
 		}
 	}
 
-	fclose(logfile);
+	fclose(logfile);*/
 
 	return 0;
 }
