@@ -4,7 +4,6 @@
 #include <string.h>
 #include <math.h>
 #include <vector>
-#include <map>
 
 #define WIDTH 800
 #define HEIGHT 600
@@ -137,23 +136,34 @@ class Population {
 		generation = 1;
 	}
 
-	void next_generation(float mutation_rate) {
-		Population old_pop(*this);
-		float fitness_sum = 0.0f;
-		for (auto player : this->players) {
-			fitness_sum += player.fitness;
+	Population(const Population& pop): generation(generation), average_fitness(average_fitness), best_fitness(best_fitness) {
+		for (auto player : pop.players) {
+			players.push_back(Player(player));
 		}
-		this->average_fitness = fitness_sum / this->players.size();
+	}
+
+	void next_generation(float mutation_rate) {
+		//printf("Generation %d\n", generation);
+		float fitness_sum = 0.0f;
 		this->best_fitness = 0.0f;
 		for (int i = 0; i < this->players.size(); ++i) {
-			this->players[i].fitness /= fitness_sum;
+			fitness_sum += players[i].fitness;
 			if (this->players[i].fitness > this->best_fitness) this->best_fitness = this->players[i].fitness;
+			//printf("Fitness %f\n", players[i].fitness);
 		}
+		this->average_fitness = fitness_sum / this->players.size();
+		//printf("Avg Fitness %f\n", average_fitness);
+		for (int i = 0; i < this->players.size(); ++i) {
+			this->players[i].fitness /= fitness_sum;
+		}
+		//printf("Best Fitness %f\n", best_fitness);
 		std::vector<float> chances_lut(this->players.size());
 		chances_lut[0] = this->players[0].fitness;
 		for (int i = 1; i < this->players.size(); ++i) {
 			chances_lut[i] = chances_lut[i-1] + this->players[i].fitness;
 		}
+		// Save old players
+		Population old_pop(*this);
 		for (int i = 0; i < this->players.size(); ++i) {
 			float random = (float) rand() / RAND_MAX;
 			int index = 0;
@@ -176,30 +186,41 @@ void sketch_static(void) {
 
 	int frameCount = 1;
 
+	// New Population
 	Population pop(20, {4,4,2});
 	Target target;
 
-	while (pop.generation != 100) {
+	// Simulate Generations
+	while (pop.generation <= 100) {
 
-		for (Player& player : pop.players) {
-			player.think(target);
-			float dist = sqrtf((player.pos[0] - target.pos[0])*(player.pos[0] - target.pos[0])
-				+ (player.pos[1] - target.pos[1])*(player.pos[1] - target.pos[1])
+		// Update each player
+		for (int i = 0; i < pop.players.size(); ++i) {
+			// Update velocity with neural network
+			pop.players[i].think(target);
+			// move player in direction
+			pop.players[i].update();
+			// Calculate Distance to target
+			const float dist = sqrtf((pop.players[i].pos[0] - target.pos[0])*(pop.players[i].pos[0] - target.pos[0])
+				+ (pop.players[i].pos[1] - target.pos[1])*(pop.players[i].pos[1] - target.pos[1])
 				);
-			float fitness = target.radius / dist / 2.0;
+			// Calculate Fitness
+			float fitness = target.radius / dist / 2.0f;
 			if (fitness > 1.0f) fitness = 1.0f;
 			if (dist < target.radius) fitness = 1.0f;
-			player.fitness += fitness;
-			player.update();
+			pop.players[i].fitness += fitness;
+			//printf("calculated %f fitness. Player now has %f\n", fitness, pop.players[i].fitness);
 		}
 
+		// the rate of which the target changes its position increases over time
 		int tmp = (int)(200.0 / (1 + exp(-1 + 0.03*pop.generation)));
 		if (tmp < 5) tmp = 5;
 		if (frameCount % tmp == 0 && frameCount % 150 != 0) target = Target();
 
 		if (frameCount % 150 == 0) {
+			// next generation
 			pop.next_generation(0.1);
-			fprintf(logfile, "%d\t%f\t%f\n", pop.generation, pop.best_fitness, pop.average_fitness);
+			fprintf(logfile, "%d\t%f\t%f\n", pop.generation-1, pop.best_fitness, pop.average_fitness);
+			// new target
 			target = Target();
 			float new_startpos[2] = {(float) (rand() % WIDTH), (float) (rand() % HEIGHT)};
 			for (int i = 0; i < pop.players.size(); ++i) {
@@ -250,6 +271,8 @@ int main(void) {
 			reward += calculate_reward(output2, goal2);
 			reward += calculate_reward(output3, goal3);
 			pop.fitness[i] = reward;
+			gen_fitness += reward;
+			gen_fitness += reward;
 			gen_fitness += reward;
 			if (reward > maxreward) {
 				maxreward = reward;
